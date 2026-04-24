@@ -134,6 +134,25 @@ def _load_dataframes(file_url: str) -> dict[str, pd.DataFrame]:
     return all_dfs
 
 
+def _convert_numpy_types(obj):
+    """递归将 numpy 类型转为原生 Python 类型，避免输出 np.float64() 等标记"""
+    import numpy as np
+
+    if isinstance(obj, dict):
+        return {k: _convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_convert_numpy_types(v) for v in obj]
+    elif isinstance(obj, (np.integer,)):
+        return int(obj)
+    elif isinstance(obj, (np.floating,)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    return obj
+
+
 def _strip_imports(code: str) -> str:
     """移除代码中的 import 语句（pd/np 已预注入沙箱）"""
     lines = code.split("\n")
@@ -198,6 +217,13 @@ def _run_code_in_sandbox(code: str, df_dict: dict[str, pd.DataFrame]) -> dict:
                 output_parts.append(result_var.to_string())
             elif isinstance(result_var, pd.Series):
                 output_parts.append(result_var.to_string())
+            elif isinstance(result_var, dict):
+                # 将 dict 中的 numpy 类型转为原生 Python 类型，避免输出 np.float64() 等标记
+                clean_dict = _convert_numpy_types(result_var)
+                output_parts.append(json.dumps(clean_dict, ensure_ascii=False, indent=2))
+            elif isinstance(result_var, (list, tuple)):
+                clean_list = _convert_numpy_types(result_var)
+                output_parts.append(json.dumps(clean_list, ensure_ascii=False, indent=2))
             else:
                 output_parts.append(str(result_var))
 
