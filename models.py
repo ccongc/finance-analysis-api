@@ -32,7 +32,7 @@ class ParseResult(BaseModel):
 
 class AnalysisRequest(BaseModel):
     code: str                            # LLM 生成的 Python 分析代码
-    file_url: str                        # Excel 文件下载链接
+    file_url: str                        # Excel 文件下载链接（支持 JSON 数组字符串，多文件）
     timeout: int = 30                    # 执行超时秒数
 
 

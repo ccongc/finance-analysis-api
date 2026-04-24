@@ -12,9 +12,11 @@
 import asyncio
 import signal
 import io
+import json
 import sys
 import traceback
 from contextlib import redirect_stdout, redirect_stderr
+from urllib.parse import unquote
 
 import pandas as pd
 
@@ -86,15 +88,50 @@ def _validate_code(code: str) -> list[str]:
     return violations
 
 
+def _extract_filename(url: str) -> str:
+    """从 URL 中提取文件名"""
+    path = url.split("?")[0]
+    filename = path.rsplit("/", 1)[-1]
+    return unquote(filename)
+
+
+def _parse_file_urls(file_url: str) -> list[str]:
+    """解析 file_url 参数，兼容 JSON 数组和单个 URL"""
+    file_url = file_url.strip()
+    if file_url.startswith("["):
+        try:
+            urls = json.loads(file_url)
+            if isinstance(urls, list):
+                return [u.strip() for u in urls if u.strip()]
+        except json.JSONDecodeError:
+            pass
+    return [file_url]
+
+
 def _load_dataframes(file_url: str) -> dict[str, pd.DataFrame]:
-    """下载 Excel 并加载为 DataFrame 字典（同步，在线程中调用）"""
+    """下载 Excel（支持多文件 JSON 数组）并加载为 DataFrame 字典"""
     import httpx
 
-    resp = httpx.get(file_url, timeout=30, verify=False)
-    resp.raise_for_status()
+    urls = _parse_file_urls(file_url)
+    all_dfs: dict[str, pd.DataFrame] = {}
 
-    xl = pd.ExcelFile(io.BytesIO(resp.content))
-    return {name: pd.read_excel(xl, sheet_name=name) for name in xl.sheet_names}
+    for url in urls:
+        filename = _extract_filename(url)
+        prefix = filename.replace(".xlsx", "").replace(".xls", "")
+
+        resp = httpx.get(url, timeout=30, verify=False)
+        resp.raise_for_status()
+
+        xl = pd.ExcelFile(io.BytesIO(resp.content))
+        file_dfs = {name: pd.read_excel(xl, sheet_name=name) for name in xl.sheet_names}
+
+        for sheet_name, df in file_dfs.items():
+            if len(urls) == 1:
+                all_dfs[sheet_name] = df
+            else:
+                all_dfs[f"{prefix}_{sheet_name}"] = df
+
+    return all_dfs
 
 
 def _run_code_in_sandbox(code: str, df_dict: dict[str, pd.DataFrame]) -> dict:

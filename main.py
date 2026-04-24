@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from typing import Optional
 import uvicorn
 
-from parser import parse_excel_bytes, parse_excel_from_url
+from parser import parse_excel_bytes, parse_excel_from_url, parse_multiple_from_urls
 from sandbox import execute_analysis_code
 from models import AnalysisRequest, ParseResult, AnalysisResult
 
@@ -61,9 +61,9 @@ class ParseByUrlBody(BaseModel):
 
 @app.post("/parseByUrl", response_model=ParseResult)
 async def parse_by_url(body: ParseByUrlBody):
-    """通过 URL 下载并解析 Excel（适配 FastGPT 传入 userFileUrl）"""
+    """通过 URL 下载并解析 Excel（适配 FastGPT 传入 userFileUrl，支持多文件 JSON 数组）"""
     try:
-        result = await parse_excel_from_url(body.file_url, body.sample_rows)
+        result = await parse_multiple_from_urls(body.file_url, body.sample_rows)
         return result
     except Exception as e:
         raise HTTPException(400, f"Excel 解析失败: {e}")

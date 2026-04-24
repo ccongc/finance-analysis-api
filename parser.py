@@ -1,6 +1,8 @@
-"""Excel 解析模块：提取表头、字段统计、采样数据"""
+"""Excel 解析模块：提取表头、字段统计、采样数据，支持多文件"""
 
 import io
+import json
+from urllib.parse import unquote
 from typing import Optional
 
 import pandas as pd
@@ -49,6 +51,13 @@ def _build_summary(sheets: dict[str, SheetInfo]) -> str:
     return "\n".join(lines)
 
 
+def _extract_filename(url: str) -> str:
+    """从 URL 中提取文件名（去除查询参数和解码中文）"""
+    path = url.split("?")[0]
+    filename = path.rsplit("/", 1)[-1]
+    return unquote(filename)
+
+
 def parse_excel_bytes(content: bytes, sample_rows: int = 5) -> ParseResult:
     """从字节数据解析 Excel"""
     xl = pd.ExcelFile(io.BytesIO(content))
@@ -56,7 +65,7 @@ def parse_excel_bytes(content: bytes, sample_rows: int = 5) -> ParseResult:
 
 
 async def parse_excel_from_url(url: str, sample_rows: int = 5) -> ParseResult:
-    """从 URL 下载并解析 Excel"""
+    """从单个 URL 下载并解析 Excel"""
     import httpx
 
     async with httpx.AsyncClient(timeout=30, verify=False) as client:
@@ -65,6 +74,62 @@ async def parse_excel_from_url(url: str, sample_rows: int = 5) -> ParseResult:
 
     xl = pd.ExcelFile(io.BytesIO(resp.content))
     return _parse(xl, sample_rows)
+
+
+async def parse_multiple_from_urls(file_url: str, sample_rows: int = 5) -> ParseResult:
+    """
+    从多个 URL 下载并解析 Excel，合并结果
+
+    file_url 支持以下格式：
+    1. JSON 数组字符串：'["url1", "url2"]'
+    2. 单个 URL 字符串：'https://...'
+    """
+    urls = _parse_file_urls(file_url)
+
+    all_sheets: dict[str, SheetInfo] = {}
+
+    for url in urls:
+        filename = _extract_filename(url)
+        # 用文件名作为前缀，避免不同文件中同名 sheet 冲突
+        prefix = filename.replace(".xlsx", "").replace(".xls", "")
+
+        try:
+            result = await parse_excel_from_url(url, sample_rows)
+
+            for sheet_name, sheet_info in result.sheets.items():
+                # 单文件时不需要加前缀
+                if len(urls) == 1:
+                    final_name = sheet_name
+                else:
+                    final_name = f"{prefix}_{sheet_name}"
+                all_sheets[final_name] = sheet_info
+        except Exception as e:
+            # 某个文件失败不影响其他文件
+            all_sheets[f"_错误_{prefix}"] = SheetInfo(
+                columns=[],
+                row_count=0,
+                sample_data=f"文件解析失败: {e}",
+            )
+
+    summary = _build_summary(all_sheets)
+    return ParseResult(sheets=all_sheets, summary=summary)
+
+
+def _parse_file_urls(file_url: str) -> list[str]:
+    """解析 file_url 参数，兼容 JSON 数组和单个 URL"""
+    file_url = file_url.strip()
+
+    # 尝试解析为 JSON 数组
+    if file_url.startswith("["):
+        try:
+            urls = json.loads(file_url)
+            if isinstance(urls, list):
+                return [u.strip() for u in urls if u.strip()]
+        except json.JSONDecodeError:
+            pass
+
+    # 单个 URL
+    return [file_url]
 
 
 def _parse(xl: pd.ExcelFile, sample_rows: int) -> ParseResult:
@@ -86,7 +151,6 @@ def _parse(xl: pd.ExcelFile, sample_rows: int) -> ParseResult:
         sheets[sheet_name] = SheetInfo(
             columns=columns,
             row_count=len(df),
-            # 采样数据转为对齐的文本表格，LLM 更容易阅读
             sample_data=df.head(sample_rows).to_string(index=True),
         )
 
