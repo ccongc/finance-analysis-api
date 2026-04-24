@@ -9,10 +9,39 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import uvicorn
+import hashlib
+import time
 
 from parser import parse_excel_bytes, parse_excel_from_url, parse_multiple_from_urls
 from sandbox import execute_analysis_code
 from models import AnalysisRequest, ParseResult, AnalysisResult
+
+
+# ─── 解析结果缓存 ───────────────────────────────────────────
+# 按 file_url 哈希缓存，同一文件不重复解析，追问时直接返回
+_cache: dict[str, dict] = {}
+_CACHE_TTL = 1800  # 缓存有效期 30 分钟
+
+
+def _cache_key(file_url: str) -> str:
+    return hashlib.md5(file_url.encode()).hexdigest()
+
+
+def _get_cached(key: str) -> Optional[dict]:
+    entry = _cache.get(key)
+    if entry and time.time() - entry["time"] < _CACHE_TTL:
+        return entry["data"]
+    if entry:
+        del _cache[key]
+    return None
+
+
+def _set_cached(key: str, data: dict):
+    _cache[key] = {"data": data, "time": time.time()}
+    # 限制缓存大小
+    if len(_cache) > 100:
+        oldest = min(_cache.items(), key=lambda x: x[1]["time"])
+        del _cache[oldest[0]]
 
 app = FastAPI(
     title="财务数据分析 API",
@@ -61,9 +90,19 @@ class ParseByUrlBody(BaseModel):
 
 @app.post("/parseByUrl", response_model=ParseResult)
 async def parse_by_url(body: ParseByUrlBody):
-    """通过 URL 下载并解析 Excel（适配 FastGPT 传入 userFileUrl，支持多文件 JSON 数组）"""
+    """通过 URL 下载并解析 Excel（适配 FastGPT 传入 userFileUrl，支持多文件 JSON 数组，带缓存）"""
     try:
+        # 查缓存
+        key = _cache_key(body.file_url)
+        cached = _get_cached(key)
+        if cached:
+            return ParseResult(**cached)
+
         result = await parse_multiple_from_urls(body.file_url, body.sample_rows)
+
+        # 写缓存
+        _set_cached(key, result.dict())
+
         return result
     except Exception as e:
         raise HTTPException(400, f"Excel 解析失败: {e}")
