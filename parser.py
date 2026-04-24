@@ -59,7 +59,7 @@ async def parse_excel_from_url(url: str, sample_rows: int = 5) -> ParseResult:
     """从 URL 下载并解析 Excel"""
     import httpx
 
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, verify=False) as client:
         resp = await client.get(url)
         resp.raise_for_status()
 

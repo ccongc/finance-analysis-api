@@ -90,7 +90,7 @@ def _load_dataframes(file_url: str) -> dict[str, pd.DataFrame]:
     """下载 Excel 并加载为 DataFrame 字典（同步，在线程中调用）"""
     import httpx
 
-    resp = httpx.get(file_url, timeout=30)
+    resp = httpx.get(file_url, timeout=30, verify=False)
     resp.raise_for_status()
 
     xl = pd.ExcelFile(io.BytesIO(resp.content))
