@@ -134,12 +134,32 @@ def _load_dataframes(file_url: str) -> dict[str, pd.DataFrame]:
     return all_dfs
 
 
+def _strip_imports(code: str) -> str:
+    """移除代码中的 import 语句（pd/np 已预注入沙箱）"""
+    lines = code.split("\n")
+    cleaned = []
+    for line in lines:
+        stripped = line.strip()
+        # 跳过 pandas / numpy 的 import 语句
+        if stripped.startswith("import pandas") or stripped.startswith("import numpy"):
+            continue
+        if stripped.startswith("import pd") or stripped.startswith("import np"):
+            continue
+        if stripped.startswith("from pandas") or stripped.startswith("from numpy"):
+            continue
+        cleaned.append(line)
+    return "\n".join(cleaned)
+
+
 def _run_code_in_sandbox(code: str, df_dict: dict[str, pd.DataFrame]) -> dict:
     """
     在受限命名空间中执行代码
 
     返回: {"output": str, "error": str|None}
     """
+    # 预处理：移除 import 语句（pd/np 已预注入）
+    code = _strip_imports(code)
+
     # 构建安全的执行命名空间
     safe_globals = {
         "__builtins__": SAFE_BUILTINS,
