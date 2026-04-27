@@ -38,7 +38,12 @@ def _build_summary(sheets: dict[str, SheetInfo]) -> str:
     """生成数据结构的自然语言摘要，供 LLM 快速理解"""
     lines = []
     for name, sheet in sheets.items():
-        lines.append(f"工作表「{name}」: {sheet.row_count} 行")
+        if sheet.row_count == 0 and sheet.columns:
+            # 空报表：只有表头没有数据，标记为目标输出模板
+            lines.append(f"工作表「{name}」: ⚠️ 空报表模板（0 行数据，仅有表头），这是用户期望的输出格式")
+            lines.append(f"  目标输出字段: {[col.name for col in sheet.columns]}")
+        else:
+            lines.append(f"工作表「{name}」: {sheet.row_count} 行")
         for col in sheet.columns:
             desc = f"  - {col.name} ({col.dtype})"
             if col.unique_count <= 10 and col.unique_count > 0:
