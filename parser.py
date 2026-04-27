@@ -150,27 +150,31 @@ def _parse(xl: pd.ExcelFile, sample_rows: int) -> ParseResult:
     for sheet_name in xl.sheet_names:
         df = pd.read_excel(xl, sheet_name=sheet_name)
 
-        # 去除完全为空的列
-        df = df.dropna(axis=1, how="all")
-
-        # 跳过既没有列也没有数据的 sheet
-        if df.empty and len(df.columns) == 0:
-            continue
-
         # 空报表模板：有列（表头）但 0 行数据
-        if df.empty and len(df.columns) > 0:
+        # 必须在 dropna 之前检测，否则空 DataFrame 的列会被全部删掉
+        if len(df) == 0 and len(df.columns) > 0:
             columns = [ColumnInfo(
                 name=str(col),
                 dtype="object",
                 sample_values=[],
                 null_count=0,
                 unique_count=0,
+                min_value=None,
+                max_value=None,
+                mean_value=None,
             ) for col in df.columns]
             sheets[sheet_name] = SheetInfo(
                 columns=columns,
                 row_count=0,
                 sample_data="（空报表模板，仅有表头）",
             )
+            continue
+
+        # 去除完全为空的列
+        df = df.dropna(axis=1, how="all")
+
+        # 跳过没有任何有效列和数据的 sheet
+        if df.empty:
             continue
 
         columns = [_analyze_column(df[col], sample_rows) for col in df.columns]
