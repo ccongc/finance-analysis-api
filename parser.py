@@ -93,23 +93,29 @@ async def parse_multiple_from_urls(file_url: str, sample_rows: int = 5) -> Parse
 
     all_sheets: dict[str, SheetInfo] = {}
 
-    for url in urls:
+    for i, url in enumerate(urls):
         filename = _extract_filename(url)
-        # 用文件名作为前缀，避免不同文件中同名 sheet 冲突
         prefix = filename.replace(".xlsx", "").replace(".xls", "")
 
         try:
             result = await parse_excel_from_url(url, sample_rows)
 
+            if not result.sheets:
+                # 文件下载成功但无有效 sheet（如纯空文件）
+                all_sheets[f"_空文件_{prefix}"] = SheetInfo(
+                    columns=[],
+                    row_count=0,
+                    sample_data=f"文件 {filename} 无有效工作表",
+                )
+                continue
+
             for sheet_name, sheet_info in result.sheets.items():
-                # 单文件时不需要加前缀
                 if len(urls) == 1:
                     final_name = sheet_name
                 else:
                     final_name = f"{prefix}_{sheet_name}"
                 all_sheets[final_name] = sheet_info
         except Exception as e:
-            # 某个文件失败不影响其他文件
             all_sheets[f"_错误_{prefix}"] = SheetInfo(
                 columns=[],
                 row_count=0,
@@ -144,12 +150,28 @@ def _parse(xl: pd.ExcelFile, sample_rows: int) -> ParseResult:
     for sheet_name in xl.sheet_names:
         df = pd.read_excel(xl, sheet_name=sheet_name)
 
-        # 跳过完全空的 sheet
-        if df.empty:
-            continue
-
         # 去除完全为空的列
         df = df.dropna(axis=1, how="all")
+
+        # 跳过既没有列也没有数据的 sheet
+        if df.empty and len(df.columns) == 0:
+            continue
+
+        # 空报表模板：有列（表头）但 0 行数据
+        if df.empty and len(df.columns) > 0:
+            columns = [ColumnInfo(
+                name=str(col),
+                dtype="object",
+                sample_values=[],
+                null_count=0,
+                unique_count=0,
+            ) for col in df.columns]
+            sheets[sheet_name] = SheetInfo(
+                columns=columns,
+                row_count=0,
+                sample_data="（空报表模板，仅有表头）",
+            )
+            continue
 
         columns = [_analyze_column(df[col], sample_rows) for col in df.columns]
 
