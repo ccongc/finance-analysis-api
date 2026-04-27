@@ -317,3 +317,120 @@ async def execute_analysis_code(
         code_used=code,
         execution_time=round(elapsed, 2),
     )
+
+
+def _run_report_in_sandbox(code: str, df_dict: dict[str, pd.DataFrame], output_path: str) -> dict:
+    """在沙箱中执行报表生成代码，输出 Excel 文件"""
+    safe_globals = {
+        "__builtins__": SAFE_BUILTINS,
+        "pd": pd,
+        "np": __import__("numpy"),
+        "df_dict": df_dict,
+        "output_path": output_path,
+    }
+
+    for name, df in df_dict.items():
+        safe_globals[f"df_{name}"] = df
+    if df_dict:
+        first_key = next(iter(df_dict))
+        safe_globals["df"] = df_dict[first_key]
+
+    stdout_buf = io.StringIO()
+
+    try:
+        with redirect_stdout(stdout_buf):
+            exec(code, safe_globals)  # noqa: S102
+
+        # 检查文件是否生成
+        import os
+        if not os.path.exists(output_path):
+            return {"output": stdout_buf.getvalue(), "error": "代码执行完成但未生成报表文件，请确保代码中包含: result.to_excel(output_path, index=False)"}
+
+        file_size = os.path.getsize(output_path)
+        return {"output": f"报表生成成功，文件大小: {file_size} 字节", "error": None}
+
+    except Exception:
+        return {"output": stdout_buf.getvalue() or "", "error": traceback.format_exc()}
+
+
+async def execute_report_code(
+    code: str,
+    file_url: str,
+    report_name: str,
+    timeout: int = 30,
+) -> "ReportResult":
+    """执行报表生成代码，返回 Excel 文件下载信息"""
+    from models import ReportResult
+    import tempfile
+    import time
+
+    start = time.time()
+
+    # 安全检查
+    violations = _validate_code(code)
+    # 报表生成允许 to_excel
+    violations = [v for v in violations if "to_excel" not in v]
+    if violations:
+        return ReportResult(
+            success=False,
+            file_url=None,
+            file_name=None,
+            error=f"代码安全检查未通过:\n" + "\n".join(violations),
+            code_used=code,
+            execution_time=time.time() - start,
+        )
+
+    # 预处理
+    code = _strip_imports(code)
+
+    # 下载数据
+    try:
+        df_dict = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(None, _load_dataframes, file_url),
+            timeout=30,
+        )
+    except asyncio.TimeoutError:
+        return ReportResult(success=False, file_url=None, file_name=None, error="文件下载超时", code_used=code, execution_time=time.time() - start)
+    except Exception as e:
+        return ReportResult(success=False, file_url=None, file_name=None, error=f"文件下载失败: {e}", code_used=code, execution_time=time.time() - start)
+
+    # 创建临时输出路径
+    output_dir = tempfile.mkdtemp()
+    safe_name = report_name.replace("..", "").replace("/", "").replace("\\", "")
+    output_path = os.path.join(output_dir, f"{safe_name}.xlsx")
+
+    # 执行
+    try:
+        result = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(
+                None, _run_report_in_sandbox, code, df_dict, output_path
+            ),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        return ReportResult(success=False, file_url=None, file_name=None, error=f"代码执行超时（{timeout}秒）", code_used=code, execution_time=time.time() - start)
+
+    elapsed = time.time() - start
+
+    if result["error"] is not None:
+        return ReportResult(success=False, file_url=None, file_name=None, error=result["error"], code_used=code, execution_time=round(elapsed, 2))
+
+    # 文件生成成功，移动到静态文件目录
+    import shutil
+    static_dir = os.path.join(os.path.dirname(__file__), "static", "reports")
+    os.makedirs(static_dir, exist_ok=True)
+
+    # 用时间戳防重名
+    import time as time_mod
+    final_name = f"{safe_name}_{int(time_mod.time())}.xlsx"
+    final_path = os.path.join(static_dir, final_name)
+    shutil.move(output_path, final_path)
+
+    return ReportResult(
+        success=True,
+        file_url=f"/static/reports/{final_name}",
+        file_name=f"{safe_name}.xlsx",
+        error=None,
+        code_used=code,
+        execution_time=round(elapsed, 2),
+    )

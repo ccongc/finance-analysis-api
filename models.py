@@ -42,3 +42,21 @@ class AnalysisResult(BaseModel):
     error: Optional[str]                 # 错误信息
     code_used: str                       # 实际执行的代码
     execution_time: float                # 执行耗时（秒）
+
+
+# ─── 报表生成相关 ────────────────────────────────────────────
+
+class ReportRequest(BaseModel):
+    code: str                            # LLM 生成的报表构建代码
+    file_url: str                        # Excel 文件下载链接
+    report_name: str                     # 报表文件名（不含扩展名）
+    timeout: int = 30                    # 执行超时秒数
+
+
+class ReportResult(BaseModel):
+    success: bool                        # 是否生成成功
+    file_url: Optional[str]              # 生成的 Excel 下载链接
+    file_name: Optional[str]             # 文件名
+    error: Optional[str]                 # 错误信息
+    code_used: str                       # 实际执行的代码
+    execution_time: float                # 执行耗时（秒）

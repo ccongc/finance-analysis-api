@@ -6,15 +6,17 @@
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional
 import uvicorn
 import hashlib
 import time
+import os
 
 from parser import parse_excel_bytes, parse_excel_from_url, parse_multiple_from_urls
-from sandbox import execute_analysis_code
-from models import AnalysisRequest, ParseResult, AnalysisResult
+from sandbox import execute_analysis_code, execute_report_code
+from models import AnalysisRequest, ParseResult, AnalysisResult, ReportRequest, ReportResult
 
 
 # ─── 解析结果缓存 ───────────────────────────────────────────
@@ -130,6 +132,48 @@ async def analyze(body: AnalysisRequest):
         return result
     except Exception as e:
         raise HTTPException(500, f"代码执行失败: {e}")
+
+
+# ─── 报表生成 ───────────────────────────────────────────────
+
+@app.post("/generateReport", response_model=ReportResult)
+async def generate_report(body: ReportRequest):
+    """
+    生成 Excel 报表并返回下载链接
+
+    - code: LLM 生成的报表构建代码（使用 pandas，最终 result 为 DataFrame）
+    - file_url: 源数据 Excel 下载链接
+    - report_name: 报表文件名
+    - timeout: 执行超时秒数，默认 30
+    """
+    if len(body.code) > 5000:
+        raise HTTPException(400, "代码超过 5000 字符限制")
+    try:
+        result = await execute_report_code(
+            code=body.code,
+            file_url=body.file_url,
+            report_name=body.report_name,
+            timeout=body.timeout,
+        )
+        # 把相对路径转为完整 URL
+        if result.success and result.file_url:
+            host = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
+            if host:
+                result.file_url = f"https://{host}{result.file_url}"
+            else:
+                # 本地开发
+                result.file_url = f"http://localhost:{os.environ.get('PORT', '8000')}{result.file_url}"
+        return result
+    except Exception as e:
+        raise HTTPException(500, f"报表生成失败: {e}")
+
+
+# ─── 静态文件（报表下载） ──────────────────────────────────
+
+# 确保静态目录存在
+_reports_dir = os.path.join(os.path.dirname(__file__), "static", "reports")
+os.makedirs(_reports_dir, exist_ok=True)
+app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 
 
 # ─── 启动入口 ───────────────────────────────────────────────
