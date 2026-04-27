@@ -343,9 +343,13 @@ def _run_report_in_sandbox(code: str, df_dict: dict[str, pd.DataFrame], output_p
         with redirect_stdout(stdout_buf):
             exec(code, safe_globals)  # noqa: S102
 
-        # 检查文件是否生成（在沙箱外使用 os）
+        # 如果代码没写 to_excel，自动用 result 变量生成文件
         if not _os.path.exists(output_path):
-            return {"output": stdout_buf.getvalue(), "error": "代码执行完成但未生成报表文件，请确保代码中包含: result.to_excel(output_path, index=False)"}
+            result_var = safe_globals.get("result", None)
+            if result_var is not None and isinstance(result_var, pd.DataFrame):
+                result_var.to_excel(output_path, index=False)
+            else:
+                return {"output": stdout_buf.getvalue(), "error": "代码执行完成但未生成报表文件，请确保代码中包含: result.to_excel(output_path, index=False)，或将最终 DataFrame 赋值给 result 变量"}
 
         file_size = _os.path.getsize(output_path)
         return {"output": f"报表生成成功，文件大小: {file_size} 字节", "error": None}
