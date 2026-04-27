@@ -321,6 +321,8 @@ async def execute_analysis_code(
 
 def _run_report_in_sandbox(code: str, df_dict: dict[str, pd.DataFrame], output_path: str) -> dict:
     """在沙箱中执行报表生成代码，输出 Excel 文件"""
+    import os as _os
+
     safe_globals = {
         "__builtins__": SAFE_BUILTINS,
         "pd": pd,
@@ -341,12 +343,11 @@ def _run_report_in_sandbox(code: str, df_dict: dict[str, pd.DataFrame], output_p
         with redirect_stdout(stdout_buf):
             exec(code, safe_globals)  # noqa: S102
 
-        # 检查文件是否生成
-        import os
-        if not os.path.exists(output_path):
+        # 检查文件是否生成（在沙箱外使用 os）
+        if not _os.path.exists(output_path):
             return {"output": stdout_buf.getvalue(), "error": "代码执行完成但未生成报表文件，请确保代码中包含: result.to_excel(output_path, index=False)"}
 
-        file_size = os.path.getsize(output_path)
+        file_size = _os.path.getsize(output_path)
         return {"output": f"报表生成成功，文件大小: {file_size} 字节", "error": None}
 
     except Exception:
@@ -363,6 +364,7 @@ async def execute_report_code(
     from models import ReportResult
     import tempfile
     import time
+    import os
 
     start = time.time()
 
