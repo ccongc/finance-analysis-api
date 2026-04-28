@@ -93,11 +93,6 @@ def _validate_code(code: str) -> list[str]:
             if pattern in stripped and "to_string" not in stripped:
                 violations.append(f"第{i}行: 不允许文件操作 {pattern}")
 
-        # 检查直接给 .columns 赋值（会导致 Length mismatch）
-        # 匹配: xxx.columns = [...] 或 xxx.columns = (...)
-        if ".columns = [" in stripped or ".columns = (" in stripped or ".columns=[" in stripped or ".columns=(" in stripped:
-            violations.append(f"第{i}行: 禁止直接给 .columns 赋值列表（会导致 Length mismatch），请用 df.rename(columns={{旧名: 新名}}) 逐列重命名")
-
     return violations
 
 
@@ -187,6 +182,57 @@ def _strip_imports(code: str) -> str:
     return "\n".join(cleaned)
 
 
+def _fix_columns_assignment(code: str) -> str:
+    """
+    自动将 df.columns = [列表] 转为安全的 rename 操作。
+
+    原始: target_rows.columns = ['区域', '姓名', '业绩目标', ...]
+    转为: target_rows = target_rows.rename(columns={target_rows.columns[i]: '新名' for i, '新名' in enumerate([...])})
+    如果新列名数量与实际列数不匹配，自动截断或补齐，避免 Length mismatch。
+    """
+    import re
+
+    # 匹配: xxx.columns = [...] 或 xxx.columns=[...]
+    pattern = r'(\w+)\.columns\s*=\s*(\[[\s\S]*?\])'
+
+    lines = code.split("\n")
+    fixed_lines = []
+
+    for line in lines:
+        match = re.search(pattern, line.strip())
+        if not match:
+            fixed_lines.append(line)
+            continue
+
+        var_name = match.group(1)
+        new_names_str = match.group(2)
+
+        # 解析新列名列表
+        try:
+            new_names = eval(new_names_str)  # noqa: S307
+            if not isinstance(new_names, (list, tuple)):
+                fixed_lines.append(line)
+                continue
+        except Exception:
+            fixed_lines.append(line)
+            continue
+
+        # 生成安全的 rename 代码
+        # 用 enumerate + columns 索引，自动适配实际列数
+        rename_items = ", ".join(
+            f"{var_name}.columns[{i}]: '{name}'"
+            for i, name in enumerate(new_names)
+        )
+        indent = len(line) - len(line.lstrip())
+        indent_str = " " * indent
+
+        replacement = f"{indent_str}{var_name} = {var_name}.rename(columns={{{rename_items}}})"
+        fixed_lines.append(replacement)
+
+    return "\n".join(fixed_lines)
+    return "\n".join(cleaned)
+
+
 def _run_code_in_sandbox(code: str, df_dict: dict[str, pd.DataFrame]) -> dict:
     """
     在受限命名空间中执行代码
@@ -195,6 +241,7 @@ def _run_code_in_sandbox(code: str, df_dict: dict[str, pd.DataFrame]) -> dict:
     """
     # 预处理：移除 import 语句（pd/np 已预注入）
     code = _strip_imports(code)
+    code = _fix_columns_assignment(code)
 
     # 构建安全的执行命名空间
     safe_globals = {
