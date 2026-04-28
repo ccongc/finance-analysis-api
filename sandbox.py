@@ -93,6 +93,11 @@ def _validate_code(code: str) -> list[str]:
             if pattern in stripped and "to_string" not in stripped:
                 violations.append(f"第{i}行: 不允许文件操作 {pattern}")
 
+        # 检查直接给 .columns 赋值（会导致 Length mismatch）
+        # 匹配: xxx.columns = [...] 或 xxx.columns = (...)
+        if ".columns = [" in stripped or ".columns = (" in stripped or ".columns=[" in stripped or ".columns=(" in stripped:
+            violations.append(f"第{i}行: 禁止直接给 .columns 赋值列表（会导致 Length mismatch），请用 df.rename(columns={{旧名: 新名}}) 逐列重命名")
+
     return violations
 
 
