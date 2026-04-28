@@ -122,8 +122,8 @@ async def analyze(body: AnalysisRequest):
     - file_url: Excel 文件下载链接
     - timeout: 执行超时秒数，默认 30
     """
-    if len(body.code) > 5000:
-        raise HTTPException(400, "代码超过 5000 字符限制")
+    if len(body.code) > 20000:
+        raise HTTPException(400, "代码超过 20000 字符限制")
     try:
         result = await execute_analysis_code(
             code=body.code,
@@ -147,8 +147,8 @@ async def generate_report(body: ReportRequest):
     - report_name: 报表文件名
     - timeout: 执行超时秒数，默认 30
     """
-    if len(body.code) > 5000:
-        raise HTTPException(400, "代码超过 5000 字符限制")
+    if len(body.code) > 20000:
+        raise HTTPException(400, "代码超过 20000 字符限制")
     try:
         result = await execute_report_code(
             code=body.code,
