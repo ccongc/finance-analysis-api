@@ -71,8 +71,16 @@ def _validate_code(code: str) -> list[str]:
 
         # 检查危险函数调用
         for func in BLOCKED_BUILTINS:
-            if f"{func}(" in stripped:
+            pattern = f"{func}("
+            idx = stripped.find(pattern)
+            while idx != -1:
+                # 排除方法调用：astype() 包含 type( 但不是调用 type()
+                # 检查 pattern 前一个字符是否是字母（是则属于方法名如 astype）
+                if idx > 0 and stripped[idx - 1].isalpha():
+                    idx = stripped.find(pattern, idx + 1)
+                    continue
                 violations.append(f"第{i}行: 不允许调用 {func}()")
+                break
 
         # 检查 os / sys / subprocess 访问
         for mod in ["os.", "sys.", "subprocess.", "shutil.", "pathlib."]:
