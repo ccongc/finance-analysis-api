@@ -138,7 +138,11 @@ def _convert_numpy_types(obj):
     """递归将 numpy 类型转为原生 Python 类型，避免输出 np.float64() 等标记"""
     import numpy as np
 
-    if isinstance(obj, dict):
+    if isinstance(obj, pd.DataFrame):
+        return obj.to_dict(orient="records")
+    elif isinstance(obj, pd.Series):
+        return obj.tolist()
+    elif isinstance(obj, dict):
         return {k: _convert_numpy_types(v) for k, v in obj.items()}
     elif isinstance(obj, (list, tuple)):
         return [_convert_numpy_types(v) for v in obj]
