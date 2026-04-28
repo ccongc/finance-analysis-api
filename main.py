@@ -88,6 +88,7 @@ async def parse_upload(
 class ParseByUrlBody(BaseModel):
     file_url: str
     sample_rows: int = 5
+    timeout: int = 30
 
 
 @app.post("/parseByUrl", response_model=ParseResult)
@@ -100,7 +101,7 @@ async def parse_by_url(body: ParseByUrlBody):
         if cached:
             return ParseResult(**cached)
 
-        result = await parse_multiple_from_urls(body.file_url, body.sample_rows)
+        result = await parse_multiple_from_urls(body.file_url, body.sample_rows, timeout=body.timeout)
 
         # 写缓存
         _set_cached(key, result.dict())

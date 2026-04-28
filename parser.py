@@ -69,11 +69,11 @@ def parse_excel_bytes(content: bytes, sample_rows: int = 5) -> ParseResult:
     return _parse(xl, sample_rows)
 
 
-async def parse_excel_from_url(url: str, sample_rows: int = 5) -> ParseResult:
+async def parse_excel_from_url(url: str, sample_rows: int = 5, timeout: int = 30) -> ParseResult:
     """从单个 URL 下载并解析 Excel"""
     import httpx
 
-    async with httpx.AsyncClient(timeout=30, verify=False) as client:
+    async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
         resp = await client.get(url)
         resp.raise_for_status()
 
@@ -81,7 +81,7 @@ async def parse_excel_from_url(url: str, sample_rows: int = 5) -> ParseResult:
     return _parse(xl, sample_rows)
 
 
-async def parse_multiple_from_urls(file_url: str, sample_rows: int = 5) -> ParseResult:
+async def parse_multiple_from_urls(file_url: str, sample_rows: int = 5, timeout: int = 30) -> ParseResult:
     """
     从多个 URL 下载并解析 Excel，合并结果
 
@@ -98,7 +98,7 @@ async def parse_multiple_from_urls(file_url: str, sample_rows: int = 5) -> Parse
         prefix = filename.replace(".xlsx", "").replace(".xls", "")
 
         try:
-            result = await parse_excel_from_url(url, sample_rows)
+            result = await parse_excel_from_url(url, sample_rows, timeout=timeout)
 
             if not result.sheets:
                 # 文件下载成功但无有效 sheet（如纯空文件）
